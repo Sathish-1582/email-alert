@@ -1,0 +1,14 @@
+# Get the current memory usage percentage
+MEMORY_USAGE=$(free | awk '/Mem:/ {printf("%.0f"), $3/$2 * 100.0}')
+
+# Check if memory usage is greater than the threshold
+if [ "$MEMORY_USAGE" -gt "$THRESHOLD" ]; then
+    # Send an email alert
+    SUBJECT="Memory Alert: Usage is at $MEMORY_USAGE%"
+    TO="youremail@example.com"
+    BODY="Warning: Memory usage is at $MEMORY_USAGE%, which is above the threshold of $THRESHOLD%."
+
+    echo "$BODY" | mail -s "$SUBJECT" "$TO"
+fi
+
+
