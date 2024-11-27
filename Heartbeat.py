@@ -6,12 +6,12 @@ from email.mime.text import MIMEText
 import smtplib
 
 # Email configuration
-SMTP_SERVER = 'smtp.bodhee.io'
-SMTP_PORT = 587
-SMTP_USER = 'support@bodhee.io'
-SMTP_PASSWORD = 'DMtqhHuZ7zrH!'
-EMAIL_FROM = 'support@bodhee.io'
-EMAIL_TO = ['rahul.baliga@neewee.ai', 'somu.sekhar@neewee.ai', 'customeroperations@neewee.ai']
+SMTP_SERVER = ''
+SMTP_PORT = 
+SMTP_USER = ''
+SMTP_PASSWORD = ''
+EMAIL_FROM = ''
+EMAIL_TO = ['', '', '']
 
 def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
