@@ -1,0 +1,170 @@
+import logging
+import requests
+import psycopg2
+import time
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+ 
+# Configure logging
+# logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+ 
+# Email configuration
+SMTP_SERVER = 'smtp.bodhee.io'
+SMTP_PORT = 587
+SMTP_USER = 'support@bodhee.io'
+SMTP_PASSWORD = 'DMtqhHuZ7zrH!'
+EMAIL_FROM = 'support@bodhee.io'
+EMAIL_TO = ['kusuma.gudla@neewee.ai']
+ 
+def get_timestamp():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+ 
+def send_email(subject, body, recipients):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_FROM
+        msg['To'] = ', '.join(recipients)
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(EMAIL_FROM, recipients, text)
+        server.quit()
+        print(f"[{get_timestamp()}] Email sent successfully to {recipients} with subject: {subject}")
+    except Exception as e:
+        print(f"[{get_timestamp()}] Failed to send email: {e}")
+ 
+def connect_to_db():
+    try:
+        print(f"[{get_timestamp()}] Attempting to connect to the database...")
+        connection = psycopg2.connect(
+            host="172.20.10.3",
+            port="5432",
+            database="ds2",
+            user="prashanth.r@neewee.ai",
+            password="zWlh50ZreBupSWy8AxG482c6",
+            sslmode="require",
+            sslrootcert= r"C:\Users\Kusuma\Downloads\ct-ds-localdb-dbssl\ca-cert.pem",
+            sslcert= r"C:\Users\Kusuma\Downloads\ct-ds-localdb-dbssl\client-cert.pem",
+            sslkey= r"C:\Users\Kusuma\Downloads\ct-ds-localdb-dbssl\client-key.pem"
+        )
+        print(f"[{get_timestamp()}] Database connection established successfully.")
+        return connection
+    except Exception as e:
+        print(f"[{get_timestamp()}] Error connecting to the database: {e}")
+        return None
+ 
+def execute_select_query(connection, query):
+    try:
+        print(f"[{get_timestamp()}] Executing SELECT query: {query}")
+        cursor = connection.cursor()
+        cursor.execute(query)
+        result = cursor.fetchone()
+        cursor.close()
+        print(f"[{get_timestamp()}] SELECT query result: {result}")
+        return result
+    except Exception as e:
+        print(f"[{get_timestamp()}] Error executing SELECT query: {e}")
+        return None
+ 
+def run_first_rest_api():
+    try:
+        url = "https://dev.bodhee.com/datascience/ds2/apigateway/api/securityService/authorization"
+        headers = {"Email": "admin.one@neewee.ai"}
+        print(f"[{get_timestamp()}] Sending first REST API request to {url}")
+        response = requests.post(url, headers=headers, verify=False)
+        print(f"[{get_timestamp()}] First API call response code: {response.status_code}")
+        if response.status_code != 200:
+            return False
+        print(f"[{get_timestamp()}] First API response: {response.json()}")
+        return response.json()
+    except Exception as e:
+        print(f"[{get_timestamp()}] Error in first API call: {e}")
+ 
+def run_second_rest_api(payload, authToken):
+    max_retries = 7
+    retry_delay = 5  # seconds
+    try_count = 0
+    final_response = None
+    while try_count < max_retries:
+        try:
+            url = "https://dev.bodhee.com/datascience/ds2/apigateway/api/imp/updateStatusAndTriggerRmEngine?version=v1"
+            headers = {"Content-Type": "application/json", "X-Auth-Token": authToken}
+            print(f"[{get_timestamp()}] Sending second REST API request to {url}")
+            response = requests.post(url, json=payload, headers=headers, verify=False)
+            print(f"[{get_timestamp()}] Second API call response code: {response.status_code}")
+            if response.status_code in (200, 201):
+                final_response = response.json()
+                print(f"[{get_timestamp()}] Second API call successful. Response: {final_response}")
+                break
+            else:
+                try_count += 1
+                print(f"[{get_timestamp()}] Second API call failed. Retrying {try_count}/{max_retries}")
+                time.sleep(retry_delay)
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in second API call: {e}")
+            try_count += 1
+            time.sleep(retry_delay)
+    if try_count >= max_retries:
+        print(f"[{get_timestamp()}] Max retries reached. Second API call failed.")
+        send_email(
+            subject="TRD Prod ENR API Call Failed",
+            body=f"Second API call failed after {max_retries} attempts. Payload: {payload}",
+            recipients=EMAIL_TO
+        )
+    else:
+        send_email(
+            subject="TRD Prod ENR API Call Succeeded",
+            body=f"Second API call succeeded. Response: {final_response}",
+            recipients=EMAIL_TO
+        )
+    return final_response
+ 
+def main():
+    print(f"[{get_timestamp()}] Starting main function...")
+    db_connection = connect_to_db()
+    if db_connection:
+        select_query = "select ipv.id imp_plan_version_id,ipv.imp_plan_id from imp.imp_plan_publish_history ipph join imp.imp_plan_version ipv on ipv.id=ipph.imp_plan_version_id order by ipph.id desc limit 1;"
+        result = execute_select_query(db_connection, select_query)
+        enr_constraints_query = """select array_to_json(array_agg(row_to_json(t))) as json
+                from(
+                select  km.display_name as constraint,km.id as constraintId,
+                nkt.limit_value as value,
+                km.kpi_type from bodhee.data_catalog dc
+                join bodhee.tenant_data_catalog tdc on tdc.data_catalog_id = dc.id
+                join bodhee.tenant_kpi_master km on km.tenant_data_catalog_id = tdc.id
+                join bodhee.node_kpi nk on nk.tenant_kpi_master_id = km.id and km.active_flag = true
+                join bodhee.node_kpi_thresholds nkt on nk.id = nkt.node_kpi_id and nkt.limit_name = 'default'
+                where dc.category ilike 'enrconstraints' 
+                order by km.id)t"""
+        constraints = execute_select_query(db_connection, enr_constraints_query)
+        if result:
+            data_from_first_api =  first_api_response.get("authToken", None)
+#             "5ec4b682-f3ea-42d6-8e6a-ad7921f53fee"
+            payload = {
+                "plan_id": result[1],
+                "effective_from": "",
+                "effective_to": "",
+                "plan_version_id": result[0],
+                "enr_duration": 360,
+                "file_type": "Published Campaign File",
+                "shift_leader_allocation": 100,
+                "enr_constraints": constraints[0]
+            }
+            print(f"[{get_timestamp()}] Prepared payload: {payload}")
+            second_api_response = run_second_rest_api(payload, data_from_first_api)
+            print(f"[{get_timestamp()}] Final Response: {second_api_response}")
+            time.sleep(10 * 60)
+            db_connection.close()
+            print(f"[{get_timestamp()}] Database connection closed.")
+        else:
+            print(f"[{get_timestamp()}] No result from SELECT query.")
+    else:
+        print(f"[{get_timestamp()}] Database connection failed.")
+ 
+if __name__ == "__main__":
+    main()
