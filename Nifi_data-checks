@@ -1,0 +1,70 @@
+import psycopg2
+import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# Email configuration
+SMTP_SERVER = 'smtp.bodhee.io'
+SMTP_PORT = 587
+SMTP_USER = 'support@bodhee.io'
+SMTP_PASSWORD = 'DMtqhHuZ7zrH!'
+EMAIL_FROM = 'support@bodhee.io'
+EMAIL_TO = ['sathish.anand@neewee.ai', 'rahul.baliga@neewee.ai', 'shreyas.raghavendra@neewee.ai']
+
+# Function to get the last update from the database
+def get_last_update():
+    try:
+        with psycopg2.connect(
+            host="10.128.80.20",
+            port='5432',
+            database="trd-prod",
+            user="postgres",
+            password="MoUCnD50YBc2UdIHe8oy9lnI",
+            sslmode="require",
+            sslrootcert="/opt/fullenr-cron-folder/dbssl/ca-cert.pem",
+            sslcert="/opt/fullenr-cron-folder/dbssl/client-cert.pem",
+            sslkey="/opt/fullenr-cron-folder/dbssl/client-key.pem"
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT MAX(last_update_on) FROM team.operator_leave "
+                    "WHERE last_update_on >= CURRENT_DATE + interval '5 hours' "
+                    "AND last_update_on <= CURRENT_DATE + interval '8 hours';"
+                )
+                last_update = cursor.fetchone()[0]
+        return last_update
+    except Exception as e:
+        print(f"Database error: {e}")
+        return None
+
+# Function to send email alert
+def send_email_alert(subject, body, recipients):
+    msg = MIMEMultipart()
+    msg['From'] = EMAIL_FROM
+    msg['To'] = ', '.join(recipients)
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            text = msg.as_string()
+            server.sendmail(EMAIL_FROM, recipients, text)
+        print(f"Email sent successfully to {recipients} with subject: {subject}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+# Main function
+def main():
+    last_update = get_last_update()
+    if not last_update:
+        send_email_alert(
+            subject="Alert: No Data have been updated from NIFI",
+            body="We did not receive the first data from the HR bot today.",
+            recipients=EMAIL_TO
+        )
+
+if __name__ == "__main__":
+    main()
